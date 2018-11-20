@@ -11,11 +11,11 @@ import glob
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from sklearn.metrics import precision_recall_fscore_support, precision_recall_curve, confusion_matrix, cohen_kappa_score, average_precision_score, auc
+from sklearn.metrics import precision_recall_fscore_support, precision_recall_curve, confusion_matrix, cohen_kappa_score, average_precision_score, auc, fbeta_score
 
 ###############################################################################################################################################################
 def execute_phmmer_familyfasta_vs_masterfasta(phmmertlbout_outfileName,family_fasta_fileName, master_fasta_fileName):
-	run_phmmer=subprocess.Popen(["phmmer","--tblout",phmmertlbout_outfileName,"--noali",family_fasta_fileName,master_fasta_fileName],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+	run_phmmer=subprocess.Popen(["phmmer","--tblout",phmmertlbout_outfileName,"--noali","-E","1e-5",family_fasta_fileName,master_fasta_fileName],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
 	run_phmmer_results= run_phmmer.communicate()
 ################################################################################################################################################################
 def get_sequences_from_phmmer_search(family_phmmertblout_fileName, family_fasta_fileName, outseqlist_fileName):
@@ -58,53 +58,53 @@ def remove_worst_nonfamily_sequences(query_subject_dict, family_seqid_dict):
 					seqlist.remove(seq)
 					removed_seqdict[seq]=1
 			else:
-				if(seq==query):
-					self_match_flag=1
 				break
-		if not (self_match_flag==1):
-			query_subject_dict[query] = list()
-			query_subject_dict[query] = seqlist
+		
+		query_subject_dict[query] = seqlist
+
+	query_subject_dict = remove_less_represented_nonfamily_sequences(query_subject_dict)
 	return([query_subject_dict, removed_seqdict])
 	
 
+def remove_less_represented_nonfamily_sequences(query_subject_dict):
+	non_family_seq_representation_cutoff=0.5
+	non_family_seq_count_dict = get_non_family_seq_counts(query_subject_dict)
+	query_subject_dict = remove_non_family_sequences(query_subject_dict, non_family_seq_count_dict, non_family_seq_representation_cutoff)
+	return(query_subject_dict)
 
-'''
-def remove_worst_nonfamily_sequences(query_subject_dict, family_seqid_dict):
+	
+def get_non_family_seq_counts(query_subject_dict):
+	non_family_seq_count_dict={}
 	for query in query_subject_dict:
-		seqlist = query_subject_dict[query]
-		for seq in list(reversed(query_subject_dict[query])):
-			if not (family_seqid_dict.has_key(seq)):
-					seqlist.remove(seq)
+		for seq in query_subject_dict[query]:
+			if(query_subject_dict.has_key(seq)):
+				continue
+			if(non_family_seq_count_dict.has_key(seq)):
+				non_family_seq_count_dict[seq]+=1
 			else:
-				break
-		query_subject_dict[query] = list()
-		query_subject_dict[query] = seqlist
+				non_family_seq_count_dict[seq]=1
+	
+	return(non_family_seq_count_dict)
+
+
+def remove_non_family_sequences(query_subject_dict, non_family_seq_count_dict, non_family_seq_representation_cutoff):
+	for query in query_subject_dict:
+		subject_seqlist = query_subject_dict[query]
+		for seq in list(query_subject_dict[query]):
+			if(non_family_seq_count_dict.has_key(seq)):
+				if((non_family_seq_count_dict[seq]/len(query_subject_dict))<non_family_seq_representation_cutoff):
+					subject_seqlist.remove(seq)
+		query_subject_dict[query]=subject_seqlist
+	
 	return(query_subject_dict)
 
 
-
-def limit_no_of_nonfamily_sequences(seqid_dict, query_subject_dict):
-	no_of_nonfamily_seqs_to_keep=len(query_subject_dict)
-	nonfamily_seq_counter=0
-	final_seqid_dict={}
-	non_family_seqid_dict={}
-	for seq in seqid_dict:
-		if(query_subject_dict.has_key(seq)):
-			final_seqid_dict[seq]=1
-		else:
-			non_family_seqid_dict[seq]=1
-	
-	selected_non_family_seqids=random.sample(non_family_seqid_dict, no_of_nonfamily_seqs_to_keep)
-	for non_family_id in selected_non_family_seqids:
-		final_seqid_dict[non_family_id]=1
-	return(final_seqid_dict)
-'''
 def print_sequence_list(query_subject_dict, removed_seqdict, outseqlist_fileName):
 	seqid_dict={}
 	for query in query_subject_dict:
 		for seq in query_subject_dict[query]:
-			seqid_dict[seq]=1
-	
+			seqid_dict[seq]=1	
+
 	if(len(seqid_dict) == len(query_subject_dict)):
 		removed_seq_arr = removed_seqdict.keys()
 		if(len(removed_seq_arr)>=len(query_subject_dict)):
@@ -113,9 +113,6 @@ def print_sequence_list(query_subject_dict, removed_seqdict, outseqlist_fileName
 		else:
 			for i in range(0, len(removed_seq_arr)):
 				seqid_dict[removed_seq_arr[i]]=1
-	#this else is to limit the number of non-family sequences in-case huge number of non-family seqs are found
-	#else:
-	#	seqid_dict=limit_no_of_nonfamily_sequences(seqid_dict, query_subject_dict)
 	
 	outseqlist_file = open(outseqlist_fileName, "w")
 	for seq in seqid_dict:
@@ -261,8 +258,13 @@ def write_sequences_to_fasta_file(pairs_dataframe, fileName):
 	fasta_outfile.close()
 
 def build_msa_from_fasta(fastafileName):
-	run_muscle=subprocess.Popen(["/home/aayadav/Downloads/muscle3.8.31_i86linux64","-in",outPath+"/temp/"+fastafileName,"-out",outPath+"/temp/"+fastafileName+".msa"],stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-	align = run_muscle.communicate()
+	#run_muscle=subprocess.Popen(["/home/aayadav/Downloads/muscle3.8.31_i86linux64","-in",outPath+"/temp/"+fastafileName,"-out",outPath+"/temp/"+fastafileName+".msa"],stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+	#align = run_muscle.communicate()
+
+	msa_outfile = open(outPath+"/temp/"+fastafileName+".msa", "w")
+	run_mafft = subprocess.Popen(["mafft", "--auto", "--amino", outPath+"/temp/"+fastafileName],stdout=msa_outfile, stderr=subprocess.PIPE)
+	align = run_mafft.communicate()
+	msa_outfile.close()
 
 def build_hmm_model_from_msa(msafileName):
 	run_hmmbuild=subprocess.Popen(["hmmbuild","--amino", outPath+"/temp/"+msafileName+".hmm", outPath+"/temp/"+msafileName], stdout=subprocess.PIPE,stderr=subprocess.PIPE)
@@ -353,16 +355,23 @@ def delete_iteration_files(directoryName):
 
 
 def get_prediction_performance_stats(prediction_dataframe, famid_name):
-	precision_vals, recall_vals, best_cutoff, lowest_cutoff = get_precision_recall_vals_for_scores(prediction_dataframe, famid_name)
+	#precision_vals, recall_vals, best_cutoff, lowest_cutoff = get_precision_recall_vals_for_scores(prediction_dataframe, famid_name)
+
+	precision_vals, recall_vals, best_cutoff, lowest_cutoff, best_high_recall_cutoff, best_high_precision_cutoff = get_precision_recall_vals_for_scores(prediction_dataframe, famid_name)
 	pos_pr_auc = get_pr_auc(precision_vals, recall_vals)
 
 	plot_pr_curve(precision_vals, recall_vals, famid_name)
 
 	prediction_performance_stats = get_predicition_stats_for_specified_cutoff_for_scores(prediction_dataframe, best_cutoff)
+	#prediction_performance_stats = get_predicition_stats_for_specified_cutoff_for_scores(prediction_dataframe, best_high_recall_cutoff)
 
 	prediction_performance_stats.loc[:,'pos_pr_auc'] = list(np.repeat(pos_pr_auc,prediction_performance_stats.shape[0]))
 	prediction_performance_stats.loc[:,'best_score_cutoff'] = list(np.repeat(best_cutoff, prediction_performance_stats.shape[0]))
 	prediction_performance_stats.loc[:,'lowest_score_cutoff'] = list(np.repeat(lowest_cutoff, prediction_performance_stats.shape[0]))
+
+	prediction_performance_stats.loc[:,'best_high_recall_cutoff'] = list(np.repeat(best_high_recall_cutoff, prediction_performance_stats.shape[0]))
+	prediction_performance_stats.loc[:,'best_high_precision_cutoff'] = list(np.repeat(best_high_precision_cutoff, prediction_performance_stats.shape[0]))
+	
 	return(prediction_performance_stats)
 
 def get_score_cutoffs_for_pr_curve(pos_prediction_dataframe, famid_name):
@@ -396,16 +405,35 @@ def get_precision_recall_vals_for_scores(prediction_dataframe, famid_name):
         fscore_vals=list()
         prediction_dataframe['temp_pred_label']=""
         cutoffs_arr = get_score_cutoffs_for_pr_curve(prediction_dataframe.loc[prediction_dataframe['label']=='pos'], famid_name)
-        best_fscore=0
+        
+	best_fscore=0
+	best_high_recall_fscore=0
+	best_high_precision_fscore=0
+
         best_cutoff=1
+	best_high_recall_cutoff=1
+	best_high_precision_cutoff=1
         for threshold in cutoffs_arr:
                 prediction_dataframe['temp_pred_label']=""
                 prediction_dataframe.loc[(prediction_dataframe['seq1_score']>=threshold) & (prediction_dataframe['seq2_score']>=threshold),'temp_pred_label']='pos'
                 prediction_dataframe.loc[(prediction_dataframe['seq1_score']<threshold) | (prediction_dataframe['seq2_score']<threshold),'temp_pred_label']='neg'
                 precision, recall, fscore, support = precision_recall_fscore_support(prediction_dataframe['label'],prediction_dataframe['temp_pred_label'], labels=['pos','neg'])
+		
+		high_recall_fscore = fbeta_score(prediction_dataframe['label'],prediction_dataframe['temp_pred_label'], pos_label='pos', beta=2)
+		high_precision_fscore = fbeta_score(prediction_dataframe['label'],prediction_dataframe['temp_pred_label'], pos_label='pos', beta=0.5)
+
+
                 if(fscore[0]>best_fscore):
                		best_cutoff=threshold
                 	best_fscore=fscore[0]
+
+		if(high_recall_fscore>best_high_recall_fscore):
+			best_high_recall_cutoff=threshold
+			best_high_recall_fscore=high_recall_fscore
+		
+		if(high_precision_fscore>best_high_precision_fscore):
+			best_high_precision_cutoff=threshold
+			best_high_precision_fscore=high_precision_fscore
 
                 precision_vals.append(precision[0])
                 recall_vals.append(recall[0])
@@ -425,7 +453,7 @@ def get_precision_recall_vals_for_scores(prediction_dataframe, famid_name):
         #print recall_vals
         #print fscore_vals
 
-        return([precision_vals, recall_vals, best_cutoff, lowest_cutoff])
+        return([precision_vals, recall_vals, best_cutoff, lowest_cutoff, best_high_recall_cutoff, best_high_precision_cutoff])
 
 
 def get_pr_auc(precision_vals, recall_vals):
@@ -443,7 +471,7 @@ def plot_pr_curve(precision_vals, recall_vals, famid_name):
 	plt.savefig(outPath+"/"+famid_name+"/"+famid_name+"pr_curve",format='png')
 	#plt.show()
 
-def get_predicition_stats_for_specified_cutoff_for_scores(prediction_dataframe,best_cutoff):
+def get_predicition_stats_for_specified_cutoff_for_scores(prediction_dataframe, best_cutoff):
         prediction_dataframe['temp_pred_label']=""
         prediction_dataframe.loc[(prediction_dataframe['seq1_score']>=best_cutoff) & (prediction_dataframe['seq2_score']>=best_cutoff),'temp_pred_label']='pos'
         prediction_dataframe.loc[(prediction_dataframe['seq1_score']<best_cutoff) | (prediction_dataframe['seq2_score']<best_cutoff),'temp_pred_label']='neg'
@@ -532,9 +560,15 @@ def predict_missing_sequences(trainingpairs_dataframe, famid_name, prediction_pe
 
 	neg_prediction_table = get_test_pair_prediction_dataframe(neg_pairs_table)
 	
-	lowest_score_cutoff = read_lowest_score_from_family_model_stats_file(outPath+"/"+famid_name+"/"+famid_name+".performance_stats")
+	#lowest_score_cutoff = read_lowest_score_cutoff_from_family_model_stats_file(outPath+"/"+famid_name+"/"+famid_name+".performance_stats")
+	best_score_cutoff = read_best_score_cutoff_from_family_model_stats_file(outPath+"/"+famid_name+"/"+famid_name+".performance_stats")
 
-	get_missing_sequences(neg_prediction_table, lowest_score_cutoff, famid_name)
+	#best_high_recall_cutoff = read_best_high_recall_score_cutoff_from_family_model_stats_file(outPath+"/"+famid_name+"/"+famid_name+".performance_stats")
+
+
+	#get_missing_sequences(neg_prediction_table, lowest_score_cutoff, famid_name)
+	get_missing_sequences(neg_prediction_table, best_score_cutoff, famid_name)
+	#get_missing_sequences(neg_prediction_table, best_high_recall_cutoff, famid_name)
 
 	delete_iteration_files(outPath+'/temp/')
 			
@@ -561,12 +595,27 @@ def print_missing_sequences(accepted_sequences_arr, famid_name):
 
 	missing_sequences_outfile.close()
 
-def read_lowest_score_from_family_model_stats_file(family_model_stats_fileName):
+def read_lowest_score_cutoff_from_family_model_stats_file(family_model_stats_fileName):
 	family_model_stats_dataframe=pd.DataFrame()
 	family_model_stats_dataframe=pd.read_table(family_model_stats_fileName, sep="\s+")
 	lowest_score_cutoff = family_model_stats_dataframe.loc[[0],['lowest_score_cutoff']]
 	lowest_score_cutoff = float (lowest_score_cutoff.values[0])
 	return(lowest_score_cutoff)
+
+def read_best_score_cutoff_from_family_model_stats_file(family_model_stats_fileName):
+	family_model_stats_dataframe=pd.DataFrame()
+	family_model_stats_dataframe=pd.read_table(family_model_stats_fileName, sep="\s+")
+	best_score_cutoff = family_model_stats_dataframe.loc[[0],['best_score_cutoff']]
+	best_score_cutoff = float (best_score_cutoff.values[0])
+	return(best_score_cutoff)
+
+def read_best_high_recall_score_cutoff_from_family_model_stats_file(family_model_stats_fileName):
+	family_model_stats_dataframe=pd.DataFrame()
+	family_model_stats_dataframe=pd.read_table(family_model_stats_fileName, sep="\s+")
+	best_high_recall_cutoff = family_model_stats_dataframe.loc[[0],['best_high_recall_cutoff']]
+	best_high_recall_cutoff = float (best_high_recall_cutoff.values[0])
+	return(best_high_recall_cutoff)
+
 
 ####################################################################################################################################################################
 def family_model_training_and_evaluation(famid_name):
@@ -596,23 +645,23 @@ def family_model_training_and_evaluation(famid_name):
 ###################################################################################################################################################################
 global outPath
 global seq_dict_from_fam_fasta
-outPath = "/home/aayadav/research/family_quality_ygob/delete_families/"
+outPath = "/home/aayadav/research/family_quality_lgf5/lgf5_uncl_families_f1/"
 famid_name = str(sys.argv[1])
 ###################################################################################################################################################################
 
 #execute_phmmer_familyfasta_vs_masterfasta("L.17R79/L.17R79.phmmertlbout", "/data/legume_genefams3/32_family_fasta/L.17R79", "/data/legume_genefams3/legume_genefams3.fa")
-execute_phmmer_familyfasta_vs_masterfasta(famid_name+"/"+famid_name+".phmmertlbout", "/data/ygob/family_fasta_insert20/"+famid_name, "/data/ygob/ygob.fasta")
+execute_phmmer_familyfasta_vs_masterfasta(famid_name+"/"+famid_name+".phmmertlbout", "/data/lgf5/52_family_fasta/"+famid_name, "/data/lgf5/01_proteomes/lgf5.fa")
 ###################################################################################################################################################################
 
 #get_sequences_from_phmmer_search("L.17R79/L.17R79.phmmertlbout","/data/legume_genefams3/32_family_fasta/L.17R79")
-get_sequences_from_phmmer_search(famid_name+"/"+famid_name+".phmmertlbout","/data/ygob/family_fasta_insert20/"+famid_name, famid_name+"/"+famid_name+".seqlist")
+get_sequences_from_phmmer_search(famid_name+"/"+famid_name+".phmmertlbout","/data/lgf5/52_family_fasta/"+famid_name, famid_name+"/"+famid_name+".seqlist")
 ###################################################################################################################################################################
 
 #get_fasta_from_sequence_list("family_phmmerout/L.17R79.seqlist", "/data/legume_genefams3/legume_genefams3.fa")
-get_fasta_from_sequence_list(famid_name+"/"+famid_name+".seqlist", "/data/ygob/ygob.fasta", famid_name+"/"+famid_name+"_closest_sequences.fa")
+get_fasta_from_sequence_list(famid_name+"/"+famid_name+".seqlist", "/data/lgf5/01_proteomes/lgf5.fa", famid_name+"/"+famid_name+"_closest_sequences.fa")
 ###################################################################################################################################################################
 
-seq_dict_from_fam_fasta = get_pairs_file_from_seqlist(famid_name+"/"+famid_name+".seqlist", "/data/ygob/family_fasta_insert20/"+famid_name, famid_name+"/"+famid_name+".pairs")
+seq_dict_from_fam_fasta = get_pairs_file_from_seqlist(famid_name+"/"+famid_name+".seqlist", "/data/lgf5/52_family_fasta/"+famid_name, famid_name+"/"+famid_name+".pairs")
 ###################################################################################################################################################################
 
 family_model_training_and_evaluation(famid_name)
