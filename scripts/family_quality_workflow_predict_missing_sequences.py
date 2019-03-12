@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+from __future__ import division
 import re
 import sys
 import os
@@ -8,11 +9,23 @@ import numpy as np
 import subprocess
 import random
 import glob
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
+#import matplotlib
+#matplotlib.use('Agg')
+#import matplotlib.pyplot as plt
 from sklearn.metrics import precision_recall_fscore_support, precision_recall_curve, confusion_matrix, cohen_kappa_score, average_precision_score, auc, fbeta_score
 
+########################################################################################################################################################################
+def prepare_fasta_database(unclustered_fasta_fileName, famfasta_fileName, outfasta_database_fileName):
+	fasta_fileName_arr = [unclustered_fasta_fileName, famfasta_fileName]
+	outfasta_database_file = open(outfasta_database_fileName, "w")
+	for fasta_fileName in fasta_fileName_arr:
+		fasta_file = open(fasta_fileName, "r")
+		for line in fasta_file:
+			line=line.rstrip()
+			outfasta_database_file.write(line+"\n")
+		fasta_file.close()
+	outfasta_database_file.close()
+		
 ###############################################################################################################################################################
 def execute_phmmer_familyfasta_vs_masterfasta(phmmertlbout_outfileName,family_fasta_fileName, master_fasta_fileName):
 	run_phmmer=subprocess.Popen(["phmmer","--tblout",phmmertlbout_outfileName,"--noali","-E","1e-5",family_fasta_fileName,master_fasta_fileName],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
@@ -34,8 +47,8 @@ def get_sequences_from_phmmer_search(family_phmmertblout_fileName, family_fasta_
 			query_subject_dict[linearr[2]].append(linearr[0])
 
 	family_phmmertblout_file.close()
-	query_subject_dict, removed_seqdict = remove_worst_nonfamily_sequences(query_subject_dict, family_seqid_dict)
-	print_sequence_list(query_subject_dict, removed_seqdict, outseqlist_fileName)
+	query_subject_dict = remove_worst_nonfamily_sequences(query_subject_dict, family_seqid_dict)
+	print_sequence_list(query_subject_dict, outseqlist_fileName)
 
 def get_family_seqid_dict(family_fasta_fileName):
 	family_seqid_dict={}
@@ -49,21 +62,19 @@ def get_family_seqid_dict(family_fasta_fileName):
 	return(family_seqid_dict)
 
 def remove_worst_nonfamily_sequences(query_subject_dict, family_seqid_dict):
-	removed_seqdict = {}
 	for query in query_subject_dict:
 		seqlist = query_subject_dict[query]
 		self_match_flag=0
 		for seq in list(reversed(query_subject_dict[query])):
 			if not (family_seqid_dict.has_key(seq)):
 					seqlist.remove(seq)
-					removed_seqdict[seq]=1
 			else:
 				break
 		
 		query_subject_dict[query] = seqlist
 
 	query_subject_dict = remove_less_represented_nonfamily_sequences(query_subject_dict)
-	return([query_subject_dict, removed_seqdict])
+	return(query_subject_dict)
 	
 
 def remove_less_represented_nonfamily_sequences(query_subject_dict):
@@ -83,7 +94,6 @@ def get_non_family_seq_counts(query_subject_dict):
 				non_family_seq_count_dict[seq]+=1
 			else:
 				non_family_seq_count_dict[seq]=1
-	
 	return(non_family_seq_count_dict)
 
 
@@ -99,20 +109,15 @@ def remove_non_family_sequences(query_subject_dict, non_family_seq_count_dict, n
 	return(query_subject_dict)
 
 
-def print_sequence_list(query_subject_dict, removed_seqdict, outseqlist_fileName):
+def print_sequence_list(query_subject_dict, outseqlist_fileName):
 	seqid_dict={}
 	for query in query_subject_dict:
 		for seq in query_subject_dict[query]:
 			seqid_dict[seq]=1	
 
 	if(len(seqid_dict) == len(query_subject_dict)):
-		removed_seq_arr = removed_seqdict.keys()
-		if(len(removed_seq_arr)>=len(query_subject_dict)):
-			for i in range(0, len(query_subject_dict)):
-				seqid_dict[removed_seq_arr[i]]=1
-		else:
-			for i in range(0, len(removed_seq_arr)):
-				seqid_dict[removed_seq_arr[i]]=1
+		print "No non-family sequences found. Exiting..."
+		sys.exit()
 	
 	outseqlist_file = open(outseqlist_fileName, "w")
 	for seq in seqid_dict:
@@ -127,7 +132,9 @@ def get_fasta_from_sequence_list(seqlist_fileName, master_fasta_fileName, outfas
 	for line in master_fasta_file:
 		line=line.rstrip()
 		if(re.match(r'^\>',line)):
-			current_seqid = line[1:]
+			linearr = re.split(r'\s+',line)
+			current_seqid = linearr[0]
+			current_seqid=current_seqid[1:]
 			seqid_sequence_dict[current_seqid]=""
 		else:
 			seqid_sequence_dict[current_seqid] = seqid_sequence_dict[current_seqid]+line
@@ -143,6 +150,7 @@ def get_fasta_from_sequence_list(seqlist_fileName, master_fasta_fileName, outfas
 		outfasta_file.write(seqid_sequence_dict[line]+"\n")
 	seqlist_file.close()
 	outfasta_file.close()
+
 ###################################################################################################################################################################
 def get_pairs_file_from_seqlist(seqlist_fileName, family_fasta_fileName, pairs_outfileName):
 	family_fasta_file = open(family_fasta_fileName,"r")
@@ -262,7 +270,7 @@ def build_msa_from_fasta(fastafileName):
 	#align = run_muscle.communicate()
 
 	msa_outfile = open(outPath+"/temp/"+fastafileName+".msa", "w")
-	run_mafft = subprocess.Popen(["mafft", "--auto", "--amino", outPath+"/temp/"+fastafileName],stdout=msa_outfile, stderr=subprocess.PIPE)
+	run_mafft = subprocess.Popen(["mafft", "--auto", "--amino", "--thread", "10", outPath+"/temp/"+fastafileName],stdout=msa_outfile, stderr=subprocess.PIPE)
 	align = run_mafft.communicate()
 	msa_outfile.close()
 
@@ -360,7 +368,7 @@ def get_prediction_performance_stats(prediction_dataframe, famid_name):
 	precision_vals, recall_vals, best_cutoff, lowest_cutoff, best_high_recall_cutoff, best_high_precision_cutoff = get_precision_recall_vals_for_scores(prediction_dataframe, famid_name)
 	pos_pr_auc = get_pr_auc(precision_vals, recall_vals)
 
-	plot_pr_curve(precision_vals, recall_vals, famid_name)
+	#plot_pr_curve(precision_vals, recall_vals, famid_name)
 
 	prediction_performance_stats = get_predicition_stats_for_specified_cutoff_for_scores(prediction_dataframe, best_cutoff)
 	#prediction_performance_stats = get_predicition_stats_for_specified_cutoff_for_scores(prediction_dataframe, best_high_recall_cutoff)
@@ -645,23 +653,31 @@ def family_model_training_and_evaluation(famid_name):
 ###################################################################################################################################################################
 global outPath
 global seq_dict_from_fam_fasta
-outPath = "/home/aayadav/research/family_quality_lgf5/lgf5_uncl_families_f1/"
+outPath = "/home/aayadav/research/family_quality_orthofinder_legumes/orthofinder_legumes/"
 famid_name = str(sys.argv[1])
+
+unclustered_fasta_fileName = "/home/aayadav/research/orthofinder_legumes/01_proteomes_legumes/orthofinder_legumes_unclustered_size_1-8.fa"
+famfasta_fileName="/home/aayadav/research/orthofinder_legumes/orthofinder_legumes_family_fasta/"+famid_name
+outfasta_database_fileName=famid_name+"/"+famid_name+"_db.fa"
+
+###################################################################################################################################################################
+
+prepare_fasta_database(unclustered_fasta_fileName, famfasta_fileName, outfasta_database_fileName)
 ###################################################################################################################################################################
 
 #execute_phmmer_familyfasta_vs_masterfasta("L.17R79/L.17R79.phmmertlbout", "/data/legume_genefams3/32_family_fasta/L.17R79", "/data/legume_genefams3/legume_genefams3.fa")
-execute_phmmer_familyfasta_vs_masterfasta(famid_name+"/"+famid_name+".phmmertlbout", "/data/lgf5/52_family_fasta/"+famid_name, "/data/lgf5/01_proteomes/lgf5.fa")
+execute_phmmer_familyfasta_vs_masterfasta(famid_name+"/"+famid_name+".phmmertlbout", famfasta_fileName, outfasta_database_fileName)
 ###################################################################################################################################################################
 
 #get_sequences_from_phmmer_search("L.17R79/L.17R79.phmmertlbout","/data/legume_genefams3/32_family_fasta/L.17R79")
-get_sequences_from_phmmer_search(famid_name+"/"+famid_name+".phmmertlbout","/data/lgf5/52_family_fasta/"+famid_name, famid_name+"/"+famid_name+".seqlist")
+get_sequences_from_phmmer_search(famid_name+"/"+famid_name+".phmmertlbout",famfasta_fileName, famid_name+"/"+famid_name+".seqlist")
 ###################################################################################################################################################################
 
 #get_fasta_from_sequence_list("family_phmmerout/L.17R79.seqlist", "/data/legume_genefams3/legume_genefams3.fa")
-get_fasta_from_sequence_list(famid_name+"/"+famid_name+".seqlist", "/data/lgf5/01_proteomes/lgf5.fa", famid_name+"/"+famid_name+"_closest_sequences.fa")
+get_fasta_from_sequence_list(famid_name+"/"+famid_name+".seqlist", outfasta_database_fileName, famid_name+"/"+famid_name+"_closest_sequences.fa")
 ###################################################################################################################################################################
 
-seq_dict_from_fam_fasta = get_pairs_file_from_seqlist(famid_name+"/"+famid_name+".seqlist", "/data/lgf5/52_family_fasta/"+famid_name, famid_name+"/"+famid_name+".pairs")
+seq_dict_from_fam_fasta = get_pairs_file_from_seqlist(famid_name+"/"+famid_name+".seqlist", famfasta_fileName, famid_name+"/"+famid_name+".pairs")
 ###################################################################################################################################################################
 
 family_model_training_and_evaluation(famid_name)
